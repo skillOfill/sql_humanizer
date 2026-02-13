@@ -146,7 +146,7 @@ def main():
             st.markdown("**Upgrade to Pro**")
             st.markdown(
                 f'<a href="{STRIPE_UPGRADE_URL}" target="_blank" class="upgrade-cta" '
-                'style="display:block;text-decoration:none;color:white;">Get License Key (₹499)</a>',
+                'style="display:block;text-decoration:none;color:white;">Get License Key (₹5)</a>',
                 unsafe_allow_html=True,
             )
 
@@ -177,7 +177,7 @@ def main():
             """
             <div class="limit-warning">
                 <strong>Limit reached!</strong> Upgrade to Unlimited — enter a valid license key in the sidebar 
-                or click <strong>Get License Key (₹499)</strong>.
+                or click <strong>Get License Key (₹5)</strong>.
             </div>
             """,
             unsafe_allow_html=True,
@@ -209,4 +209,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
