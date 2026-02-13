@@ -3,7 +3,9 @@ SQL Humanizer 🤖 — SQL to English Translator
 Freemium app with License Key gate. Uses Google Gemini for translation.
 """
 
+import json
 import os
+import urllib.parse
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -11,16 +13,40 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # =============================================================================
-# CONFIGURATION — Paste your Stripe payment link and valid license key here
+# CONFIGURATION — Razorpay payment link; license keys delivered after payment (see LICENSE_DELIVERY.md)
 # =============================================================================
-# [INSERT_STRIPE_LINK_HERE] — Replace with your Stripe payment/checkout link for ₹499
-STRIPE_UPGRADE_URL = os.getenv("STRIPE_UPGRADE_URL", "https://buy.stripe.com/[INSERT_STRIPE_LINK_HERE]")
+RAZORPAY_UPGRADE_URL = os.getenv("RAZORPAY_UPGRADE_URL", "https://your-razorpay-payment-link-or-checkout-url")
 
-# Hardcoded valid license key for testing. In production, validate against a DB or API.
+# Optional: URL of license server (backend). If set, keys are validated via GET /api/validate?key=...
+LICENSE_SERVER_URL = os.getenv("LICENSE_SERVER_URL", "").strip().rstrip("/")
+
+# Fallback key for local/demo when LICENSE_SERVER_URL is not set
 VALID_LICENSE_KEY = "DEMO-KEY-2026"
 
 # Free tier: max queries before upgrade prompt
 FREE_TIER_MAX_QUERIES = 1
+
+
+def is_license_valid(key: str) -> bool:
+    """True if key is valid (demo key or validated by license server)."""
+    if not key or not key.strip():
+        return False
+    key = key.strip()
+    if not LICENSE_SERVER_URL:
+        return key == VALID_LICENSE_KEY
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"{LICENSE_SERVER_URL}/api/validate?key={urllib.parse.quote(key)}",
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status != 200:
+                return False
+            data = json.loads(resp.read().decode())
+            return data.get("valid") is True
+    except Exception:
+        return False
 
 
 def translate_sql(query: str, api_key: str) -> tuple[str | None, str | None]:
@@ -135,7 +161,7 @@ def main():
         )
         st.session_state.license_key = license_input
 
-        is_pro = license_input.strip() == VALID_LICENSE_KEY
+        is_pro = is_license_valid(license_input)
 
         if is_pro:
             st.markdown('<p class="pro-badge">Pro Mode Activated 🚀</p>', unsafe_allow_html=True)
@@ -145,8 +171,8 @@ def main():
             st.markdown("---")
             st.markdown("**Upgrade to Pro**")
             st.markdown(
-                f'<a href="{STRIPE_UPGRADE_URL}" target="_blank" class="upgrade-cta" '
-                'style="display:block;text-decoration:none;color:white;">Get License Key (₹5)</a>',
+                f'<a href="{RAZORPAY_UPGRADE_URL}" target="_blank" class="upgrade-cta" '
+                'style="display:block;text-decoration:none;color:white;">Get License Key (₹499)</a>',
                 unsafe_allow_html=True,
             )
 
@@ -177,7 +203,7 @@ def main():
             """
             <div class="limit-warning">
                 <strong>Limit reached!</strong> Upgrade to Unlimited — enter a valid license key in the sidebar 
-                or click <strong>Get License Key (₹5)</strong>.
+                or click <strong>Get License Key (₹499)</strong>.
             </div>
             """,
             unsafe_allow_html=True,
@@ -209,5 +235,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
