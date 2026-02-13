@@ -36,7 +36,7 @@ def translate_sql(query: str, api_key: str) -> tuple[str | None, str | None]:
     try:
         import google.generativeai as genai
         genai.configure(api_key=api_key.strip())
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         prompt = (
             "Explain this SQL query to a non-technical manager in one simple sentence. "
             "Be clear and concise. Reply with only that sentence, no code or extra formatting.\n\n"
@@ -209,3 +209,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
