@@ -1,0 +1,3 @@
+# User-facing app: hide developer/deploy options from customers
+[client]
+toolbarMode = "viewer"

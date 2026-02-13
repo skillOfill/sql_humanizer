@@ -110,6 +110,9 @@ def main():
             border-radius: 0 0.5rem 0.5rem 0;
             margin: 1rem 0;
         }
+        /* Hide Streamlit dev menu (Deploy, Settings, etc.) — app is for end users only */
+        #MainMenu, footer, header [data-testid="stToolbar"] { visibility: hidden; }
+        footer { display: none; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -123,13 +126,12 @@ def main():
 
     # --- Sidebar: License key and upgrade CTA ---
     with st.sidebar:
-        st.header("Settings")
+        st.header("License")
         license_input = st.text_input(
             "License Key",
             value=st.session_state.license_key,
             type="password",
             placeholder="Enter your license key",
-            help="Use DEMO-KEY-2026 for testing.",
         )
         st.session_state.license_key = license_input
 
@@ -204,15 +206,6 @@ def main():
                 """,
                 unsafe_allow_html=True,
             )
-
-    # --- Footer note for API key ---
-    with st.expander("How to get a Gemini API key"):
-        st.markdown(
-            "1. Go to [Google AI Studio](https://aistudio.google.com/apikey).  \n"
-            "2. Create an API key.  \n"
-            "3. Copy it into your `.env` file as: `GEMINI_API_KEY=your_key_here`"
-        )
-
 
 if __name__ == "__main__":
     main()
