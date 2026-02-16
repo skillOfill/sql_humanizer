@@ -20,24 +20,25 @@ RAZORPAY_UPGRADE_URL = os.getenv("RAZORPAY_UPGRADE_URL", "https://your-razorpay-
 # Optional: URL of license server (backend). If set, keys are validated via GET /api/validate?key=...
 LICENSE_SERVER_URL = os.getenv("LICENSE_SERVER_URL", "").strip().rstrip("/")
 
-# Fallback key for local/demo when LICENSE_SERVER_URL is not set
-VALID_LICENSE_KEY = "DEMO-KEY-2026"
+# Google OAuth for "Google Login → Payment → Auto-Unlock"
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+# Must match the redirect URI configured in Google Cloud Console (e.g. https://yourapp.streamlit.app/)
+REDIRECT_URI = os.getenv("REDIRECT_URI", "").strip() or None
 
 # Free tier: max queries before upgrade prompt
 FREE_TIER_MAX_QUERIES = 1
 
 
-def is_license_valid(key: str) -> bool:
-    """True if key is valid (demo key or validated by license server)."""
-    if not key or not key.strip():
+def email_has_license(email: str) -> bool:
+    """True if this email has a license (auto-unlock after Google Login + Payment)."""
+    if not email or not LICENSE_SERVER_URL:
         return False
-    key = key.strip()
-    if not LICENSE_SERVER_URL:
-        return key == VALID_LICENSE_KEY
     try:
         import urllib.request
+        q = urllib.parse.quote(email.strip())
         req = urllib.request.Request(
-            f"{LICENSE_SERVER_URL}/api/validate?key={urllib.parse.quote(key)}",
+            f"{LICENSE_SERVER_URL}/api/validate-by-email?email={q}",
             method="GET",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -47,6 +48,28 @@ def is_license_valid(key: str) -> bool:
             return data.get("valid") is True
     except Exception:
         return False
+
+
+def get_payment_link_for_email(email: str) -> str | None:
+    """Get a Razorpay payment link with email pre-filled (from backend). Returns URL or None."""
+    if not email or not LICENSE_SERVER_URL:
+        return None
+    try:
+        import urllib.request
+        data = json.dumps({"email": email.strip()}).encode()
+        req = urllib.request.Request(
+            f"{LICENSE_SERVER_URL}/api/create-payment-link",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status != 200:
+                return None
+            out = json.loads(resp.read().decode())
+            return (out.get("url") or "").strip() or None
+    except Exception:
+        return None
 
 
 def translate_sql(query: str, api_key: str) -> tuple[str | None, str | None]:
@@ -79,12 +102,63 @@ def translate_sql(query: str, api_key: str) -> tuple[str | None, str | None]:
         return None, f"Translation failed: {err}"
 
 
+def _google_oauth_url() -> str:
+    base = "https://accounts.google.com/o/oauth2/v2/auth"
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    return base + "?" + urllib.parse.urlencode(params)
+
+
+def _exchange_code_for_user(code: str) -> tuple[str | None, str | None]:
+    """Exchange OAuth code for user email and name. Returns (email, name) or (None, None)."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not REDIRECT_URI:
+        return None, None
+    try:
+        import requests
+        r = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": REDIRECT_URI,
+                "grant_type": "authorization_code",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None, None
+        tok = r.json().get("access_token")
+        if not tok:
+            return None, None
+        u = requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {tok}"},
+            timeout=10,
+        )
+        if u.status_code != 200:
+            return None, None
+        info = u.json()
+        return (info.get("email") or "").strip() or None, (info.get("name") or "").strip() or None
+    except Exception:
+        return None, None
+
+
 def main():
-    # --- Session state for free-tier usage and license ---
+    # --- Session state ---
     if "free_queries_used" not in st.session_state:
         st.session_state.free_queries_used = 0
-    if "license_key" not in st.session_state:
-        st.session_state.license_key = ""
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
+    if "user_name" not in st.session_state:
+        st.session_state.user_name = None
 
     # --- Page config and title ---
     st.set_page_config(
@@ -93,6 +167,27 @@ def main():
         layout="centered",
         initial_sidebar_state="expanded",
     )
+
+    # --- Google OAuth: handle callback (code in URL) ---
+    q = st.query_params
+    code = (q.get("code") or "").strip() if hasattr(q, "get") else ""
+    if code and not st.session_state.user_email and GOOGLE_CLIENT_ID and REDIRECT_URI:
+        email, name = _exchange_code_for_user(code)
+        if email:
+            st.session_state.user_email = email
+            st.session_state.user_name = name or email
+            # Clear code from URL by redirecting to same app without query (optional; avoids re-use)
+            st.query_params.clear()
+            st.rerun()
+
+    # --- If Google Login is configured but user not logged in: show login screen ---
+    use_google_login = bool(GOOGLE_CLIENT_ID and REDIRECT_URI)
+    if use_google_login and not st.session_state.user_email:
+        st.markdown("## SQL Humanizer 🤖")
+        st.markdown("Sign in with Google to use the app and upgrade to Pro.")
+        oauth_url = _google_oauth_url()
+        st.link_button("Sign in with Google", oauth_url, type="primary")
+        st.stop()
 
     # --- Modern typography and header ---
     st.markdown(
@@ -150,31 +245,39 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # --- Sidebar: License key and upgrade CTA ---
+    # --- Sidebar: Account, Pro status, Upgrade ---
+    user_email = st.session_state.user_email
     with st.sidebar:
-        st.header("License")
-        license_input = st.text_input(
-            "License Key",
-            value=st.session_state.license_key,
-            type="password",
-            placeholder="Enter your license key",
-        )
-        st.session_state.license_key = license_input
-
-        is_pro = is_license_valid(license_input)
+        if user_email:
+            st.caption(f"Signed in as **{user_email}**")
+            if st.button("Sign out"):
+                st.session_state.user_email = None
+                st.session_state.user_name = None
+                st.rerun()
+            st.markdown("---")
+        st.header("Pro")
+        # Pro = this email has paid (backend has a license for this email)
+        is_pro = email_has_license(user_email) if user_email else False
 
         if is_pro:
-            st.markdown('<p class="pro-badge">Pro Mode Activated 🚀</p>', unsafe_allow_html=True)
-            st.caption("Unlimited translations.")
+            st.markdown('<p class="pro-badge">Pro — Unlimited 🚀</p>', unsafe_allow_html=True)
+            st.caption("You have unlimited access.")
         else:
-            st.caption("Free: 1 query. Enter a valid key for unlimited.")
+            st.caption("Free: 1 query. Pay once for unlimited (same email = auto-unlock).")
             st.markdown("---")
             st.markdown("**Upgrade to Pro**")
+            upgrade_url = None
+            if user_email and LICENSE_SERVER_URL:
+                upgrade_url = get_payment_link_for_email(user_email)
+            if not upgrade_url:
+                upgrade_url = RAZORPAY_UPGRADE_URL
             st.markdown(
-                f'<a href="{RAZORPAY_UPGRADE_URL}" target="_blank" class="upgrade-cta" '
-                'style="display:block;text-decoration:none;color:white;">Get License Key (₹499)</a>',
+                f'<a href="{upgrade_url}" target="_blank" class="upgrade-cta" '
+                'style="display:block;text-decoration:none;color:white;">Upgrade (₹499)</a>',
                 unsafe_allow_html=True,
             )
+            if user_email:
+                st.caption("Use the **same email** when paying so you’re auto-unlocked.")
 
     # --- Main area: SQL input and translate ---
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -202,8 +305,7 @@ def main():
         st.markdown(
             """
             <div class="limit-warning">
-                <strong>Limit reached!</strong> Upgrade to Unlimited — enter a valid license key in the sidebar 
-                or click <strong>Get License Key (₹499)</strong>.
+                <strong>Limit reached!</strong> Upgrade to Pro in the sidebar for unlimited access (₹499).
             </div>
             """,
             unsafe_allow_html=True,
@@ -227,7 +329,7 @@ def main():
             st.markdown(
                 """
                 <div class="limit-warning">
-                    <strong>Limit reached!</strong> Upgrade to Unlimited — get a license key from the sidebar.
+                    <strong>Limit reached!</strong> Upgrade to Pro in the sidebar for unlimited access.
                 </div>
                 """,
                 unsafe_allow_html=True,
