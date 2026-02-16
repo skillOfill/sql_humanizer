@@ -273,7 +273,7 @@ def main():
                 upgrade_url = RAZORPAY_UPGRADE_URL
             st.markdown(
                 f'<a href="{upgrade_url}" target="_blank" class="upgrade-cta" '
-                'style="display:block;text-decoration:none;color:white;">Upgrade (₹499)</a>',
+                'style="display:block;text-decoration:none;color:white;">Upgrade (₹1)</a>',
                 unsafe_allow_html=True,
             )
             if user_email:
@@ -305,7 +305,7 @@ def main():
         st.markdown(
             """
             <div class="limit-warning">
-                <strong>Limit reached!</strong> Upgrade to Pro in the sidebar for unlimited access (₹499).
+                <strong>Limit reached!</strong> Upgrade to Pro in the sidebar for unlimited access (₹1).
             </div>
             """,
             unsafe_allow_html=True,
@@ -337,3 +337,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
